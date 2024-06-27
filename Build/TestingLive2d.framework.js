@@ -1178,29 +1178,29 @@ var tempDouble;
 var tempI64;
 
 var ASM_CONSTS = {
- 2633528: function() {
+ 2634136: function() {
   return Module.webglContextAttributes.premultipliedAlpha;
  },
- 2633589: function() {
+ 2634197: function() {
   return Module.webglContextAttributes.preserveDrawingBuffer;
  },
- 2633653: function() {
+ 2634261: function() {
   return Module.webglContextAttributes.powerPreference;
  },
- 2633711: function() {
+ 2634319: function() {
   Module["emscripten_get_now_backup"] = performance.now;
  },
- 2633766: function($0) {
+ 2634374: function($0) {
   performance.now = function() {
    return $0;
   };
  },
- 2633814: function($0) {
+ 2634422: function($0) {
   performance.now = function() {
    return $0;
   };
  },
- 2633862: function() {
+ 2634470: function() {
   performance.now = Module["emscripten_get_now_backup"];
  }
 };
@@ -1302,6 +1302,58 @@ function stackTrace() {
  var js = jsStackTrace();
  if (Module["extraStackTrace"]) js += "\n" + Module["extraStackTrace"]();
  return demangleAll(js);
+}
+
+var analyzers = {};
+
+function _CloseSampling(namePtr) {
+ var name = UTF8ToString(namePtr);
+ var analyzerObj = analyzers[name];
+ if (analyzerObj != null) {
+  try {
+   analyzerObj.source.disconnect(analyzerObj.analyzer);
+   delete analyzers[name];
+   console.log("Deleated: ", analyzers[name]);
+   return true;
+  } catch (e) {
+   console.log("Failed to disconnect analyser " + name + " from source " + e);
+  }
+ }
+ return false;
+}
+
+function _GetSamples(namePtr, bufferPtr, bufferSize) {
+ var name = UTF8ToString(namePtr);
+ if (analyzers[name] == null) {
+  console.log("Analyzer not found for name: " + name);
+  return false;
+ }
+ try {
+  var buffer = new Uint8Array(Module.HEAPU8.buffer, bufferPtr, Float32Array.BYTES_PER_ELEMENT * bufferSize);
+  buffer = new Float32Array(buffer.buffer, buffer.byteOffset, bufferSize);
+  var analyzerObj = analyzers[name];
+  if (analyzerObj == null) {
+   console.log("Could not find analyzer " + name + " to get lipsync data for");
+   return false;
+  }
+  if (analyzerObj.analyser == null) {
+   console.log("Analyzer object is null for name: " + name);
+   return false;
+  }
+  if (typeof analyzerObj.analyser.getFloatTimeDomainData !== "function") {
+   console.log("getFloatTimeDomainData method is not defined on analyzer for name: " + name);
+   return false;
+  }
+  analyzerObj.analyser.getFloatTimeDomainData(buffer);
+  for (var i = 0; i < buffer.length; i++) {
+   buffer[i] /= 4;
+  }
+  return true;
+ } catch (e) {
+  console.log("Failed to get lipsync sample data: " + e);
+  console.error(e.stack);
+ }
+ return false;
 }
 
 var JS_Accelerometer = null;
@@ -3011,6 +3063,56 @@ function _JS_WebRequest_SetTimeout(requestId, timeout) {
   return;
  }
  requestOptions.timeout = timeout;
+}
+
+function _StartSampling(namePtr, duration, bufferSize) {
+ var acceptableDistance = .075;
+ var name = UTF8ToString(namePtr);
+ if (analyzers[name] != null) return;
+ var analyser = null;
+ var source = null;
+ try {
+  console.log("WEBAudio is defined: ", typeof WEBAudio !== "undefined");
+  if (typeof WEBAudio !== "undefined") {
+   console.log("WEBAudio.audioInstances: ", WEBAudio.audioInstances);
+   var audioInstancesArray = Object.keys(WEBAudio.audioInstances).map(key => WEBAudio.audioInstances[key]);
+   console.log("audioInstancesArray: ", audioInstancesArray);
+   console.log("audioInstancesArray.length: ", audioInstancesArray.length);
+  }
+  console.log("audioInstancesArray.length > 1: ", audioInstancesArray.length > 1);
+  console.log("||");
+  if (typeof WEBAudio != "undefined" && audioInstancesArray.length > 1) {
+   for (var i = audioInstancesArray.length - 1; i >= 0; i--) {
+    console.log("inside for, iteration: ", i);
+    var pSource = audioInstancesArray[i].source;
+    if (pSource != null && pSource.buffer != null && Math.abs(pSource.buffer.duration - duration) < acceptableDistance) {
+     source = pSource;
+     break;
+    }
+   }
+   if (source == null) {
+    console.log("No matching source found");
+    return false;
+   }
+   analyser = source.context.createAnalyser();
+   analyser.fftSize = bufferSize * 2;
+   source.connect(analyser);
+   console.log("this is Before Assing:", analyser);
+   analyzers[name] = {
+    analyser: analyser,
+    source: source
+   };
+   console.log("This is Analayer: ", analyzers[name].analyser);
+   console.log("This is Source: ", analyzers[name].source);
+   return true;
+  }
+ } catch (e) {
+  console.log("Failed to connect analyser to source " + e);
+  if (analyser != null && source != null) {
+   source.disconnect(analyser);
+  }
+ }
+ return false;
 }
 
 var ExceptionInfoAttrs = {
@@ -13282,6 +13384,8 @@ function intArrayFromString(stringy, dontAddNull, length) {
 }
 
 var asmLibraryArg = {
+ "CloseSampling": _CloseSampling,
+ "GetSamples": _GetSamples,
  "JS_Accelerometer_IsRunning": _JS_Accelerometer_IsRunning,
  "JS_Accelerometer_Start": _JS_Accelerometer_Start,
  "JS_Accelerometer_Stop": _JS_Accelerometer_Stop,
@@ -13355,6 +13459,7 @@ var asmLibraryArg = {
  "JS_WebRequest_SetRedirectLimit": _JS_WebRequest_SetRedirectLimit,
  "JS_WebRequest_SetRequestHeader": _JS_WebRequest_SetRequestHeader,
  "JS_WebRequest_SetTimeout": _JS_WebRequest_SetTimeout,
+ "StartSampling": _StartSampling,
  "__cxa_allocate_exception": ___cxa_allocate_exception,
  "__cxa_atexit": ___cxa_atexit,
  "__cxa_begin_catch": ___cxa_begin_catch,
@@ -13939,6 +14044,8 @@ var dynCall_viiiiiifi = Module["dynCall_viiiiiifi"] = createExportWrapper("dynCa
 
 var dynCall_fiiiiii = Module["dynCall_fiiiiii"] = createExportWrapper("dynCall_fiiiiii");
 
+var dynCall_iifii = Module["dynCall_iifii"] = createExportWrapper("dynCall_iifii");
+
 var dynCall_vifffi = Module["dynCall_vifffi"] = createExportWrapper("dynCall_vifffi");
 
 var dynCall_viffi = Module["dynCall_viffi"] = createExportWrapper("dynCall_viffi");
@@ -14128,8 +14235,6 @@ var dynCall_viiiffiifiiiiiii = Module["dynCall_viiiffiifiiiiiii"] = createExport
 var dynCall_viiiiiifiiiiii = Module["dynCall_viiiiiifiiiiii"] = createExportWrapper("dynCall_viiiiiifiiiiii");
 
 var dynCall_viiiiiiiiiiii = Module["dynCall_viiiiiiiiiiii"] = createExportWrapper("dynCall_viiiiiiiiiiii");
-
-var dynCall_iifii = Module["dynCall_iifii"] = createExportWrapper("dynCall_iifii");
 
 var dynCall_ffii = Module["dynCall_ffii"] = createExportWrapper("dynCall_ffii");
 
@@ -16288,6 +16393,10 @@ if (!Object.getOwnPropertyDescriptor(Module, "wr")) Module["wr"] = function() {
 
 if (!Object.getOwnPropertyDescriptor(Module, "jsWebRequestGetResponseHeaderString")) Module["jsWebRequestGetResponseHeaderString"] = function() {
  abort("'jsWebRequestGetResponseHeaderString' was not exported. add it to EXPORTED_RUNTIME_METHODS (see the FAQ)");
+};
+
+if (!Object.getOwnPropertyDescriptor(Module, "analyzers")) Module["analyzers"] = function() {
+ abort("'analyzers' was not exported. add it to EXPORTED_RUNTIME_METHODS (see the FAQ)");
 };
 
 if (!Object.getOwnPropertyDescriptor(Module, "WebGLCopyAndPaste")) Module["WebGLCopyAndPaste"] = function() {
