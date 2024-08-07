@@ -6,7 +6,6 @@
     <title>Unity WebGL Player | AiAssistant</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=yes">
   </head>
   <body>
     <div id="unity-container" class="unity-desktop">
@@ -58,11 +57,11 @@
       }
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/build.loader.js";
+      var loaderUrl = buildUrl + "/b2.loader.js";
       var config = {
-        dataUrl: buildUrl + "/build.data",
-        frameworkUrl: buildUrl + "/build.framework.js",
-        codeUrl: buildUrl + "/build.wasm",
+        dataUrl: buildUrl + "/b2.data",
+        frameworkUrl: buildUrl + "/b2.framework.js",
+        codeUrl: buildUrl + "/b2.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "Maski",
         productName: "AiAssistant",
